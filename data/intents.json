@@ -1,7 +1,0 @@
-{
-  "intents": [
-    {"tag": "greeting", "patterns": ["Hi", "Hello"], "responses": ["Hello! How can I help with the animal?"]},
-    {"tag": "bleeding", "patterns": ["bleeding", "cut", "blood"], "responses": ["Apply firm pressure with a clean cloth."]},
-    {"tag": "cracker", "patterns": ["cracker", "firework", "burnt"], "responses": ["Wash with cool water. Keep in a dark room."]}
-  ]
-}

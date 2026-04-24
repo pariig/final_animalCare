@@ -2,3 +2,5 @@ streamlit
 torch
 nltk
 numpy
+scikit-learn
+pandas

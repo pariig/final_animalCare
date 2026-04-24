@@ -38,11 +38,11 @@ y_train = np.array(y_train)
 
 # Hyper-parameters 
 input_size = len(all_words)
-hidden_size = 8
+hidden_size = 32
 output_size = len(tags)
 batch_size = 8
-learning_rate = 0.001
-num_epochs = 1000
+learning_rate = 0.0005
+num_epochs = 2000
 
 # Training setup
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')

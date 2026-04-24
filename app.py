@@ -1,87 +1,76 @@
 import streamlit as st
-import torch
-import random
 import json
 import os
-# Correctly importing from the src directory
-from src.model import NeuralNet
-from src.nltk_utils import bag_of_words, tokenize
+import numpy as np
+from sklearn.feature_extraction.text import TfidfVectorizer
+from sklearn.metrics.pairwise import cosine_similarity
 
-# 1. SETUP AND MODEL LOADING
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+# --- 1. SETUP & DATA LOADING ---
+st.set_page_config(page_title="Vet-AI Pro", page_icon="🐾", layout="wide")
 
-# Paths for your modular structure
-INTENTS_PATH = os.path.join('data', 'intents.json')
-MODEL_PATH = os.path.join('models', 'chat_model.pth')
+DATA_PATH = os.path.join('data', 'processed_data.json')
 
-# Load the intents data
-with open(INTENTS_PATH, 'r') as f:
-    intents = json.load(f)
+@st.cache_resource
+def load_data_and_vectorize():
+    if not os.path.exists(DATA_PATH):
+        return None, None, None
+    
+    with open(DATA_PATH, 'r') as f:
+        data = json.load(f)
+    
+    # Create the TF-IDF Vectorizer
+    # We use stop_words to ignore 'the', 'is', etc.
+    vectorizer = TfidfVectorizer(stop_words='english')
+    
+    # Extract all symptoms from our dataset to "train" the vectorizer
+    all_symptoms = [item['symptoms'] for item in data]
+    tfidf_matrix = vectorizer.fit_transform(all_symptoms)
+    
+    return data, vectorizer, tfidf_matrix
 
-# Load the trained model data
-# weights_only=False is required for loading custom classes like NeuralNet
-try:
-    data = torch.load(MODEL_PATH, map_location=device, weights_only=False)
-except FileNotFoundError:
-    st.error("Model file not found! Please run 'python3 train.py' first.")
-    st.stop()
+data, vectorizer, tfidf_matrix = load_data_and_vectorize()
 
-input_size = data["input_size"]
-hidden_size = data["hidden_size"]
-output_size = data["output_size"]
-all_words = data['all_words']
-tags = data['tags']
-model_state = data["model_state"]
+# --- 2. UI HEADER ---
+st.title("🐾 Vet-AI: Advanced First-Aid System")
+st.markdown("### Using TF-IDF Vector Space Modeling for Symptom Mapping")
 
-# Initialize the model and load the weights
-model = NeuralNet(input_size, hidden_size, output_size).to(device)
-model.load_state_dict(model_state)
-model.eval()
-
-# 2. STREAMLIT UI
-st.set_page_config(page_title="Street Animal First-Aid AI", page_icon="🐾")
-st.title("🐾 Street Animal First-Aid AI")
-st.markdown("Immediate first-aid advice for stray animals when a vet isn't available.")
-
-# Initialize chat history
+# --- 3. CHAT INTERFACE ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display chat history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+        st.write(message["content"])
 
-# User Input
-if prompt := st.chat_input("What is the animal's condition?"):
-    # Add user message to chat history
+if prompt := st.chat_input("Describe the animal's symptoms..."):
     st.session_state.messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
-        st.markdown(prompt)
+        st.write(prompt)
 
-    # PROCESS THE INPUT (Inference)
-    sentence = tokenize(prompt)
-    X = bag_of_words(sentence, all_words)
-    X = X.reshape(1, X.shape[0])
-    X = torch.from_numpy(X).to(device)
-
-    output = model(X)
-    _, predicted = torch.max(output, dim=1)
-    tag = tags[predicted.item()]
-
-    # Calculate probability
-    probs = torch.softmax(output, dim=1)
-    prob = probs[0][predicted.item()]
-
-    # Response Logic
-    if prob.item() > 0.75:
-        for intent in intents['intents']:
-            if tag == intent['tag']:
-                response = random.choice(intent['responses'])
+    if data is None:
+        response = "Error: Please run prepare_data.py first."
     else:
-        response = "I'm not exactly sure about this condition. Please maintain basic hygiene, keep the animal calm, and contact a local animal NGO immediately."
+        # TRANSFORM user input into the same TF-IDF space
+        query_vec = vectorizer.transform([prompt])
+        
+        # CALCULATE Cosine Similarity between user query and ALL symptoms in dataset
+        similarity = cosine_similarity(query_vec, tfidf_matrix).flatten()
+        
+        # Find the best match
+        best_match_idx = np.argmax(similarity)
+        confidence = similarity[best_match_idx]
 
-    # Display assistant response
+        if confidence > 0.20:  # Much more flexible threshold than 0.75
+            match = data[best_match_idx]
+            
+            # --- CONSTRUCTING THE RESPONSE ---
+            response = f"**Identified Condition:** {match['disease']}\n\n"
+            response += f"### 🟢 Primary Intervention (First Aid)\n{match['primary']}\n\n"
+            response += f"### 🏥 Secondary Intervention (Medical Therapy)\n{match['secondary']}\n"
+            response += f"\n*(Confidence Score: {confidence:.2f})*"
+        else:
+            response = "I am not confident enough to give medical advice for this. Please contact a vet immediately."
+
     with st.chat_message("assistant"):
         st.markdown(response)
     st.session_state.messages.append({"role": "assistant", "content": response})
